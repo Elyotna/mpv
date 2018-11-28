@@ -57,6 +57,23 @@ static void wayland_egl_swap_buffers(struct ra_ctx *ctx)
     eglSwapBuffers(p->egl_display, p->egl_surface);
 }
 
+static void egl_create_window(struct ra_ctx *ctx)
+{
+    struct priv *p = ctx->priv;
+    struct vo_wayland_state *wl = ctx->vo->wl;
+
+    p->egl_window = wl_egl_window_create(wl->surface, 640, 360);
+
+    p->egl_surface = eglCreateWindowSurface(p->egl_display, p->egl_config,
+                                            p->egl_window, NULL);
+
+    if (!eglMakeCurrent(p->egl_display, p->egl_surface, p->egl_surface, p->egl_context))
+	MP_ERR(wl, "Failed to make context current: 0x%x.\n", eglGetError());
+
+    if (!eglSwapInterval(p->egl_display, 0))
+	MP_VERBOSE(wl, "Failed to set swap interval: 0x%x.\n", eglGetError());
+}
+
 static bool egl_create_context(struct ra_ctx *ctx)
 {
     struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
@@ -65,14 +82,17 @@ static bool egl_create_context(struct ra_ctx *ctx)
     if (!(p->egl_display = eglGetDisplay(wl->display)))
         return false;
 
-    if (eglInitialize(p->egl_display, NULL, NULL) != EGL_TRUE)
+    if (eglInitialize(p->egl_display, NULL, NULL) != EGL_TRUE) {
+        MP_ERR(wl, "eglInitialize() failed with error: 0x%x\n",
+                       eglGetError());
         return false;
+    }
 
     if (!mpegl_create_context(ctx, p->egl_display, &p->egl_context,
                               &p->egl_config))
         return false;
 
-    eglMakeCurrent(p->egl_display, NULL, NULL, p->egl_context);
+    egl_create_window(ctx);
 
     mpegl_load_functions(&p->gl, wl->log);
 
@@ -86,22 +106,6 @@ static bool egl_create_context(struct ra_ctx *ctx)
     ra_add_native_resource(ctx->ra, "wl", wl->display);
 
     return true;
-}
-
-static void egl_create_window(struct ra_ctx *ctx)
-{
-    struct priv *p = ctx->priv;
-    struct vo_wayland_state *wl = ctx->vo->wl;
-
-    p->egl_window = wl_egl_window_create(wl->surface, mp_rect_w(wl->geometry),
-                                         mp_rect_h(wl->geometry));
-
-    p->egl_surface = eglCreateWindowSurface(p->egl_display, p->egl_config,
-                                            p->egl_window, NULL);
-
-    eglMakeCurrent(p->egl_display, p->egl_surface, p->egl_surface, p->egl_context);
-
-    eglSwapInterval(p->egl_display, 0);
 }
 
 static bool wayland_egl_reconfig(struct ra_ctx *ctx)
